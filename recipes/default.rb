@@ -30,13 +30,17 @@ directory node["solr_app"]["path"] do
   action :create
 end
 
-
 # Extract war file from solr archive
 ark 'solr_war' do
   url node["solr_app"]["url"]
   action :cherry_pick
   creates node["solr_app"]["archive_war_path"]
   path ::File.join(Chef::Config[:file_cache_path], "solr_app")
+  strip_leading_dir false
+
+  not_if do
+    ::File.exists?(::File.join(node["solr_app"]["path"], "current", "solr-#{node["solr_app"]["version"]}.war"))
+  end
 end
 
 # Since solr 4.3.0 we need slf4j jar http://wiki.apache.org/solr/SolrLogging#Solr_4.3_and_above
@@ -48,6 +52,10 @@ end
     creates ::File.join("slf4j-1.6.6", file)
     path ::File.join(node["tomcat"]["home"],"lib")
     strip_leading_dir true
+
+    not_if do
+      ::File.exists?(::File.join(node["tomcat"]["home"], "lib", file))
+    end
   end
 end
 
@@ -60,26 +68,22 @@ d = directory node["solr_app"]["solr_home"] do
 end
 d.run_action(:create)
 
-template "solr.xml" do
-  path ::File.join(node["solr_app"]["solr_home"],"solr.xml")
-  owner node["tomcat"]["user"]
-  group node["tomcat"]["group"]
-  source "solr.xml.erb"
-  cookbook "solr_app"
-  variables(
-    :collections => Array(Pathname.new(node["solr_app"]["solr_home"]).children.select { |c| c.directory? }.collect { |p| p.basename })
-  )
-#  notifies :restart, "service[tomcat]"
-end
-
 application "solr" do
   path node["solr_app"]["path"]
   owner node["tomcat"]["user"]
   group node["tomcat"]["group"]
-  repository ::File.join(Chef::Config[:file_cache_path], "solr_app", node["solr_app"]["archive_war_path"] )
+  repository ::File.join(Chef::Config[:file_cache_path], "solr_app", node["solr_app"]["archive_war_path"])
   scm_provider Chef::Provider::File::Deploy
   java_webapp do
     context_template "tomcat.xml.erb"
   end
   tomcat
+
+  only_if do
+    ::File.exists?(::File.join(Chef::Config[:file_cache_path], "solr_app", node["solr_app"]["archive_war_path"]))
+  end
+end
+
+solr_app_xml "solr.xml" do
+  collections []
 end
